@@ -1,8 +1,10 @@
 #include <EirlabPolluants.hpp>
 
-EirlabPolluants::EirlabPolluants(/* args */)
+EirlabPolluants::EirlabPolluants(int __send_pin, int __sens_pin, int __sens_sound)
 {
-    ;
+    this->send_pin = __send_pin;
+    this->sens_pin = __sens_pin;
+    this->sens_sound = __sens_sound;
 }
 
 EirlabPolluants::~EirlabPolluants()
@@ -10,75 +12,60 @@ EirlabPolluants::~EirlabPolluants()
     ;
 }
 
+
+/**
+ * @brief Initialisation function of the class. Sets pinMode for all the pins and initiate peripherals if needed.
+*/
 void EirlabPolluants::init( void )
 {
     Serial.begin(9600);
     Serial.println("Started");
-    pinMode(SEND_POLLU, OUTPUT);
-    pinMode(SENS_POLLU, INPUT);
-    pinMode(SENS_SOUND, INPUT);
-
-    pinMode(SENS_DHT11, INPUT_PULLUP);
-
-    WiFi.begin(this->ssid, this->password);
-
-    while(WiFi.status() != WL_CONNECTED) {
-        delay(500);
-        Serial.print(".");
-    }
-
-    dht.setup(SENS_DHT11, DHTesp::DHT11);
+    pinMode(this->send_pin, OUTPUT);
+    pinMode(this->sens_pin, INPUT);
+    pinMode(this->sens_sound, INPUT);
 }
 
+/**
+ * @brief Let us measure how much ppm of 2.5µm particule
+*/
 int EirlabPolluants::get_density( void )
 {
-    digitalWrite(SEND_POLLU, HIGH);
-    delayMicroseconds(280);
-    int adc_value = analogRead(SENS_POLLU);
-    digitalWrite(SEND_POLLU, LOW);
-
-    //Serial.printf("raw_adc_pollu = %d\n", adc_value);
-
     int density;
-    double voltage = (SYS_VOLTAGE / 4096.00) * adc_value * 11;
+    digitalWrite(this->send_pin, HIGH);
+    delayMicroseconds(280);
+    density = analogRead(this->sens_pin);
+    delayMicroseconds(40);
+    digitalWrite(this->send_pin, LOW);
+    delayMicroseconds(9680);
 
-    if (voltage >= NO_DUST_VOLTAGE) {
-        voltage -= NO_DUST_VOLTAGE;
-        density = voltage * COV_RATIO;
-    }
-
-    if (density != 0)
-        this->ppms = density;
-
+    density = (((density / 1024.00) - 0.0356) * 120000.00 * 0.035);
+    if (density < 0)
+        density = 0;
+    
+    this->ppms = density;
     return density;
 }
 
-double EirlabPolluants::get_temperature( void )
+
+/**
+ * @brief Since we can't have the dht class in another class (i'm to bad I guess ...) we set it through this method.
+*/
+void EirlabPolluants::set_temperature( double __t )
 {
-    TempAndHumidity th = this->dht.getTempAndHumidity();
-
-    if (this->dht.getStatus() != 0) {
-		return false;
-	}
-
-    this->temperature = th.temperature - 2.00;
-
-    return th.temperature;
+    this->temperature = __t;
 }
 
-double EirlabPolluants::get_humidity( void )
+/**
+ * @brief Same as before.
+*/
+void EirlabPolluants::set_humidity( double __h )
 {
-    TempAndHumidity th = this->dht.getTempAndHumidity();
-
-    if (this->dht.getStatus() != 0) {
-		return false;
-	}
-
-    this->humidity = th.humidity;
-
-    return th.humidity;
+    this->humidity = __h;
 }
 
+/**
+ * @brief Not used. Let us filter a value coming from the adc. We should try this on the microphone input. Instead of peak detection as we do for now.
+*/
 int EirlabPolluants::filter_adc_value(int m)
 {
     static int flag_first = 0, _buff[10], sum;
@@ -111,41 +98,42 @@ int EirlabPolluants::filter_adc_value(int m)
     }
 }
 
+
+/**
+ * @brief Measure ambiant sound level by detecting peaks over 128 measurements. Conversion is made with some kind of LUT.
+*/
 int EirlabPolluants::get_loudness( void )
 {
-    int db = 0;
-    unsigned long startMillis;
-    float average;
-    float sample;
+    int sound, raw_sound;
+    int avg_sound = 0;
+    // Performs 128 signal readings   
+    for ( int i = 0 ; i < 128; i ++)  
+    {  
+        raw_sound = analogRead(this->sens_sound);  
+        if (raw_sound > avg_sound)
+        avg_sound = raw_sound;
+    }  
+    sound = (avg_sound + 83.20) / 2;
+    if (sound > 110)
+        sound = 110;
     
-    startMillis = millis();
-    average = 0;
-
-    while (millis() - startMillis < 50) // last is window's width
-    {
-        sample = analogRead(SENS_SOUND);
-        average = (average + sample) / 2.00;
-    }
-
-    db = map(average, 20, 3600, 49, 120);
-    this->sound = db;
-
-    return db;
+    this->sound = sound;
+    return sound;
 }
 
-void EirlabPolluants::publish()
+/**
+ * @brief Create the URL to send the data to the api through a GET request.
+*/
+void EirlabPolluants::publish(EthernetClient __client)
 {
-    if (WiFi.status() == WL_CONNECTED)
-    {
-        HTTPClient http;
+    char buffer[128];
+    sprintf(buffer, "%s?density=%d&level=%d&temperature=%lf&humidity=%lf&sound=%d", this->serverName, this->ppms, 0, this->temperature, this->humidity, this->sound);
+    Serial.println(buffer);
 
-        if ((this->ppms != 0) && (this->temperature != 0) && (this->humidity != 0) && (this->sound != 0))
-        {
-            char buffer[128];
-            sprintf(buffer, "%s?density=%d&level=%d&temperature=%lf&humidity=%lf&sound=%d", this->serverName, this->ppms, 0, this->temperature, this->humidity, this->sound);
-            
-            http.begin(buffer);
-            int response = http.GET();
-        }  
+    if (__client.connect(buffer, 80))
+    {
+        Serial.println("data published.");
+    } else {
+        Serial.println("data can't be published.");
     }
 }
