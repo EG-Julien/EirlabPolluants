@@ -20,25 +20,26 @@ class EirlabPolluants
         int sens_pin;
         int sens_sound;
 
-        int ppms = 10;
-        double temperature = 0;
-        double humidity = 0;
-        int sound = 0;
-
-        char serverName[48] = "https://api.aircslab.fr/api/eirlab_measurements";
-
         int filter_adc_value(int m);
+        double matchDB(double vol);
     public:
         EirlabPolluants(int __send_pin, int __sens_pin, int __sens_sound);
         ~EirlabPolluants();
         void init( void );
         int get_density();
-        void set_temperature(double __t);
-        void set_humidity(double __h);
-        int get_loudness( void );
+        void set_temperature(float __t);
+        void set_humidity(float __h);
+        int get_loudness(EthernetClient __client, IPAddress __server);
         void publish(EthernetClient __client);
 
         byte mac[6] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
+
+        int ppms = 10;
+        float temperature = 0;
+        float humidity = 0;
+        int sound = 0;
+
+        char serverName[48] = "api.aircslab.fr";
 };
 
 

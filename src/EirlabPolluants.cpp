@@ -18,7 +18,6 @@ EirlabPolluants::~EirlabPolluants()
 */
 void EirlabPolluants::init( void )
 {
-    Serial.begin(9600);
     Serial.println("Started");
     pinMode(this->send_pin, OUTPUT);
     pinMode(this->sens_pin, INPUT);
@@ -38,7 +37,7 @@ int EirlabPolluants::get_density( void )
     digitalWrite(this->send_pin, LOW);
     delayMicroseconds(9680);
 
-    density = (((density / 1024.00) - 0.0356) * 120000.00 * 0.035);
+    density = (((density / 1024.00) - 0.0356) * 120000.00 * 0.035) + 150;
     if (density < 0)
         density = 0;
     
@@ -50,7 +49,7 @@ int EirlabPolluants::get_density( void )
 /**
  * @brief Since we can't have the dht class in another class (i'm to bad I guess ...) we set it through this method.
 */
-void EirlabPolluants::set_temperature( double __t )
+void EirlabPolluants::set_temperature(float __t)
 {
     this->temperature = __t;
 }
@@ -58,7 +57,7 @@ void EirlabPolluants::set_temperature( double __t )
 /**
  * @brief Same as before.
 */
-void EirlabPolluants::set_humidity( double __h )
+void EirlabPolluants::set_humidity(float __h)
 {
     this->humidity = __h;
 }
@@ -102,22 +101,45 @@ int EirlabPolluants::filter_adc_value(int m)
 /**
  * @brief Measure ambiant sound level by detecting peaks over 128 measurements. Conversion is made with some kind of LUT.
 */
-int EirlabPolluants::get_loudness( void )
+int EirlabPolluants::get_loudness(EthernetClient __client, IPAddress __server)
 {
-    int sound, raw_sound;
-    int avg_sound = 0;
-    // Performs 128 signal readings   
-    for ( int i = 0 ; i < 128; i ++)  
-    {  
-        raw_sound = analogRead(this->sens_sound);  
-        if (raw_sound > avg_sound)
-        avg_sound = raw_sound;
-    }  
-    sound = (avg_sound + 83.20) / 2;
-    if (sound > 110)
-        sound = 110;
-    
+    if (__client.connect(__server, 80))
+    {
+        __client.println("GET /sound HTTP/1.1");
+        __client.println("Host: 192.168.0.113");
+        __client.println("Connection: close");
+        __client.println();
+        Serial.println("data published.");
+    } else {
+        Serial.println("data can't be published.");
+    }
+
+    char buffer[64];
+    int i = 0;
+    while(__client.connected()) {
+      if(__client.available()){
+        // read an incoming byte from the server and print it to serial monitor:
+        char c = __client.read();
+        if (c == '\n' || c == '\r')
+        {
+            i = 0;
+            for (int i = 0; i < 64; i++)
+            {
+                buffer[i] = 0;
+            }
+            
+        }
+        buffer[i] = c;
+        i++;
+      }
+    }
+    int sound;
+
+    char sounc[2] = {buffer[12], buffer[13]};
+    sound = atoi(sounc);
     this->sound = sound;
+    Serial.println(sound);
+    __client.stop(); //stop client
     return sound;
 }
 
@@ -127,13 +149,39 @@ int EirlabPolluants::get_loudness( void )
 void EirlabPolluants::publish(EthernetClient __client)
 {
     char buffer[128];
-    sprintf(buffer, "%s?density=%d&level=%d&temperature=%lf&humidity=%lf&sound=%d", this->serverName, this->ppms, 0, this->temperature, this->humidity, this->sound);
+    char temp_buff[6];
+    char hum_buff[6];
+
+    dtostrf(this->temperature, 4, 2, temp_buff);
+    dtostrf(this->humidity, 4, 2, hum_buff);
+
+    sprintf(buffer, "GET /api/eirlab_measurements?density=%d&level=%d&temperature=%s&humidity=%s&sound=%d HTTP/1.1", this->ppms, 0, temp_buff, hum_buff, this->sound);
     Serial.println(buffer);
 
-    if (__client.connect(buffer, 80))
+    if (__client.connect(this->serverName, 80))
     {
+        __client.println(buffer);
+        __client.println("Host: api.aircslab.fr");
+        __client.println("Connection: close");
+        __client.println();
         Serial.println("data published.");
     } else {
         Serial.println("data can't be published.");
     }
+    __client.stop(); //stop client
+}
+
+double EirlabPolluants::matchDB(double vol)
+{
+	if (vol < 150)
+	{
+		return 38;
+	}
+	if (vol < 500)
+	{
+		return 0.062 * vol + 39;
+	}
+	double temp = 0.02 * vol + 60;
+	if(temp > 100) temp = 100;
+	return temp;
 }

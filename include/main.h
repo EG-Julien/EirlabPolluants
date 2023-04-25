@@ -3,8 +3,8 @@
 
 #include <Arduino.h>
 
-#define SENS_SOUND A1
-#define SENS_POLLU A0
+#define SENS_SOUND A0
+#define SENS_POLLU A1
 #define SENS_DHT11 3
 #define SEND_POLLU 2
 

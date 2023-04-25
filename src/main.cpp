@@ -5,12 +5,13 @@
 /**
  * Note:
  * This firmware could be used on more/less anything rather than an Arduino UNO. These types of sensors need 5V IO pins for communication
- * or lights up infrared led. So the code will work without any problem, but sensors won't respond like they should.
+ * or lights up infrared led. So the code will work without any problem, but sensors won't respond like they should.a
 */
 
 #include <main.h>
 
 IPAddress ip(192, 168, 0, 177);
+IPAddress server(192, 168, 0, 113);
 IPAddress myDns(192, 168, 0, 1);
 
 EthernetClient client;
@@ -21,6 +22,7 @@ EirlabPolluants sensors(SEND_POLLU, SENS_POLLU, SENS_SOUND);
 void setup() {
   Serial.begin(115200);
   sensors.init();
+  dht.begin();
 
   Serial.println("Initialize Ethernet with DHCP:");
   if (Ethernet.begin(sensors.mac) == 0) {
@@ -44,11 +46,11 @@ void setup() {
 }
 
 void loop() {
-  sensors.set_temperature(dht.readTemperature());
+  sensors.set_temperature(dht.readTemperature() - 4);
   sensors.set_humidity(dht.readHumidity());
 
   sensors.get_density();
-  sensors.get_loudness();
+  sensors.get_loudness(client, server);
 
   sensors.publish(client);
 
