@@ -29,17 +29,35 @@ void EirlabPolluants::init( void )
 */
 int EirlabPolluants::get_density( void )
 {
-    int density;
+    int raw_density;
+    float voltage, density;
     digitalWrite(this->send_pin, HIGH);
     delayMicroseconds(280);
-    density = analogRead(this->sens_pin);
+    raw_density = analogRead(this->sens_pin);
     delayMicroseconds(40);
     digitalWrite(this->send_pin, LOW);
     delayMicroseconds(9680);
 
-    density = (((density / 1024.00) - 0.0356) * 120000.00 * 0.035) + 150;
-    if (density < 0)
+    raw_density = filter_adc_value(raw_density);
+
+    voltage = float(raw_density) * (5000 / 1024.00) * 11;
+
+    if(voltage >= 400)
+    {
+        voltage -= 400;
+        
+        density = voltage * 0.2;
+    }
+    else
         density = 0;
+
+    Serial.print("adc:");
+    Serial.print(raw_density);
+    Serial.print(", voltage:");
+    Serial.print(voltage);
+    Serial.print(", dens:");
+    Serial.print(density);
+
     
     this->ppms = density;
     return density;
@@ -137,7 +155,9 @@ int EirlabPolluants::get_loudness(EthernetClient __client, IPAddress __server)
 
     char sounc[2] = {buffer[12], buffer[13]};
     sound = atoi(sounc);
-    this->sound = sound;
+    if (sound > 40) {
+        this->sound = sound; // Handle small error readings.
+    }
     Serial.println(sound);
     __client.stop(); //stop client
     return sound;
